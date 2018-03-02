@@ -47,10 +47,10 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 #include "stdafx.h"
+#include <CLM_utils.h>
 
 //Added by JoaoOtavio
 #include <dirent.h>
-#include <CLM_utils.h>
 
 using namespace boost::filesystem;
 
@@ -852,435 +852,457 @@ void DrawBox(Mat image, Vec6d pose, Scalar color, int thickness, float fx, float
 	}
 }
 
-//=================================================================================================================================================
-//Augmented Face Application (Created by JoaoOtavio)
-//=================================================================================================================================================
+//=================================================================
+//	Augmented Face Application
+//
+//	The code below shows an application prototype that
+//	performs faces augmentation using OpenCV. The augmentation
+//	is performed by an overlay between a 2D image (foreground)
+//	and video frames (background). Firstly, the CLM algorithm
+//	tracks faces in the video image. It returns 68 landmarks
+//	which will be used as input to the Alpha Blending. 
+//	Then, it is done a correspondence between the object image 
+//	(here we are use glass images) and some of the 68 landmarks.
+//	The result is the glass object overlaid in the eyes face,
+//	giving the impression that it is part of the real world.
+//	This demonstrates that is possible to create an powerful tool
+//	for Augmented Reality porposes using open source frameworks.
+//
+//	Author: João Otávio Brandão (UFRPE)
+//	Email: joao_otavio93@live.com
+//================================================================
 
 //Object image correspondence points painted 
-Mat objImgMatches;
-////Face image matches points
-//vector<int> faceImgMatchesPoints;
-//Object images loaded
-vector<Mat> objImgs;
-//Previous object images
-vector<Mat> srcObjImgs;
-//Object images matches points
-vector<Point2f> objMatchesPoints;
-//Object image default size
-Size defaultSize = Size(360, 275);
-bool faceAugmented = false;
-bool applicationLoaded = false;
-bool faceImgPointMatched = false;
-//Current object image index
-int currentObjImgIndex = 0;
+Mat selectedObjectImage;
 
-Mat ObjPrint;
-int objPrintCont = 0;
+//Face image matched points
+vector<int> faceImageSelectedPoints;
+
+//Contains the images of the objects
+vector<Mat> objectsImages;
+
+//Contains the original images of the objects
+vector<Mat> srcObjectsImages;
+
+//Contains the Object images matches points
+vector<Point2f> objectImageMatchedPoints;
+
+//Object image default size
+Size objectImageSize = Size(360, 275);
+
+//
+bool faceAugmented = false;
+
+//Flag that indicates if the application is loaded
+bool isApplicationLoaded = false;
+
+//Flag that indicates if the points of the faces were selected
+bool isFaceImagePointsMatched = false;
+
+//Index of the current object image
+//been shown on the application object
+//selection screen
+int currObjectImageIndex = 0;
+
+//Image after perform face augmentation
+Mat augmentedFaceImage;
+
+//Count of augmented faces
+int augmentedFaceImageCount = 0;
+
+//FPS
 string currentFps = "";
 
+//To calculate the processing time
 int start = 0;
+
+//To calculate the processing time
 int sum = 0;
 
-//Load all object images used to agument faces
-void LoadObjImgs()
+// Application initializer
+void Application()
 {
 	try
 	{
-		string dirName = "../objects/glasses/";
+		if (!isApplicationLoaded)
+		{
+			if (objectsImages[currObjectImageIndex].empty())
+			{
+				cout << "Error: It was not possible to read current object image!" << endl;
+				system("pause");
+			}
+
+			resize(objectsImages[currObjectImageIndex], objectsImages[currObjectImageIndex], objectImageSize);
+			objectsImages[currObjectImageIndex].copyTo(selectedObjectImage);
+
+			Mat selectedObjectImageCopy;
+
+			selectedObjectImage.copyTo(selectedObjectImageCopy);
+			srcObjectsImages.push_back(selectedObjectImageCopy);
+
+			isApplicationLoaded = true;
+		}
+
+		namedWindow("Object", cv::WINDOW_NORMAL);
+		resizeWindow("Object", selectedObjectImage.size().width, selectedObjectImage.size().height);
+		setMouseCallback("Object", DrawCorrespondencePoint, NULL);
+
+		imshow("Object", selectedObjectImage);
+
+		if (srcObjectsImages.size() == 0)
+		{
+			Mat selectedObjectImageCopy;
+			selectedObjectImage.copyTo(selectedObjectImageCopy);
+			srcObjectsImages.push_back(selectedObjectImageCopy);
+		}
+	}
+	catch (Exception ex)
+	{
+		cout << "Error in application function!" << endl << "See the thrown exception: " << ex.msg << endl;
+		system("pause");
+	}
+}
+
+//Loads the glasses images. These images are the objects which will overlay the video.
+void LoadGlassesImages()
+{
+	try
+	{
 		DIR *dir;
-		dir = opendir(dirName.c_str());
-		string imgName;
-		struct dirent *ent;
-		int cont = 0;
+		string dirStr = "../objects/glasses/";	
+		dir = opendir(dirStr.c_str());
+		string imageFileName;
+		struct dirent *dirPtr;
+		int count = 0;
 		if (dir != NULL) 
 		{
-			while ((ent = readdir (dir)) != NULL) {
-				if(cont <= 2)
-					cont++;
-				if(cont > 2)
+			while ((dirPtr = readdir (dir)) != NULL) {
+				if(count <= 2)
+					count++;
+				if(count > 2)
 				{
-					string imgPath(dirName + ent->d_name);
-					Mat aux = imread(imgPath, -1);
-					objImgs.push_back(aux);
+					string imagePath(dirStr + dirPtr->d_name);
+					Mat image = imread(imagePath, -1);
+					objectsImages.push_back(image);
 				}
 			}
 		}
 	}
 	catch(Exception ex)
 	{
-		cout << "An error occurred: it was not possible to read all object images!" << endl << "See the thrown exception" << ex.msg << endl;
+		cout << "Error: It was not possible to read all object images!" << endl << "See the thrown exception: " << ex.msg << endl;
 		system("pause");
 	}
 }
 
-//An agumented faces application
-void Application()
-{
-	try
-	{
-		/*Mat label = imread("../objects/label.png");
-		if(label.empty())
-		{
-			cout << "An error occurred: it was not possible to read label image!" << endl;
-			system("pause");
-		}
-		imshow("Label", label);*/
-		if(!applicationLoaded)
-		{
-			if(objImgs[currentObjImgIndex].empty())
-			{
-				cout << "An error occurred: it was not possible to read current object image!" << endl;
-				system("pause");
-			}
-			resize(objImgs[currentObjImgIndex], objImgs[currentObjImgIndex], defaultSize);
-			objImgs[currentObjImgIndex].copyTo(objImgMatches);
-			Mat objImgMatchesCopy;
-			objImgMatches.copyTo(objImgMatchesCopy);
-			srcObjImgs.push_back(objImgMatchesCopy);
-			applicationLoaded = true;
-		}
-		namedWindow("Object", cv::WINDOW_NORMAL);
-		resizeWindow("Object", objImgMatches.size().width, objImgMatches.size().height);
-		setMouseCallback("Object", OnClickObjImgMatches, NULL);
-		imshow("Object", objImgMatches);
-		if(srcObjImgs.size() == 0)
-		{
-			Mat objImgMatchesCopy;
-			objImgMatches.copyTo(objImgMatchesCopy);
-			srcObjImgs.push_back(objImgMatchesCopy);
-		}
-	}
-	catch(Exception ex)
-	{
-		cout << "An error occurred in Application function!" << endl << "See the thrown exception" << ex.msg << endl;
-		system("pause");
-	}
-}
-
-//Set face image matches
-void SelectFaceImgMatches()
-{
-	//try
-	//{
-	//	if(!faceImgPointMatched)
-	//	{
-	//		char faceImgPoints[100] = "";
-	//		cout << "Informe os pontos de correspondecia da imagem da face:" << endl;
-	//		gets(faceImgPoints);
-	//		char *p = strtok(faceImgPoints, ";");
-	//		while (p) {
-	//			int facePointInt = atoi(p);
-	//			if(facePointInt < 0 || facePointInt > 67)
-	//			{
-	//				cout << "Os pontos informados devem esta em um range de 0 a 67!" << endl;
-	//				system("pause");
-	//				ResetApplication();
-	//				break;
-	//			}
-	//			faceImgMatchesPoints.push_back(facePointInt);
-	//			p = strtok(NULL, ";");
-	//		}
-	//		cout << "Pontos de correspondecia da imagem da face selecionados..." << endl;
-	//		faceImgPointMatched = true;
-	//	}
-	//}
-	//catch(Exception ex)
-	//{
-	//	cout << "An error occurred in SelectFaceImgMatches function!" << endl << "See the thrown exception" << ex.msg << endl;
-	//	system("pause");
-	//}
-}
-
-//Paint correspondence points on object image
-void OnClickObjImgMatches(int e, int x, int y, int d, void *ptr)
+//Draws the selected correspondence points on the object image.
+void DrawCorrespondencePoint(int e, int x, int y, int d, void *ptr)
 {
 	if (e == EVENT_LBUTTONDOWN)
 	{
-		if(objMatchesPoints.size() > 0)
+		if(objectImageMatchedPoints.size() > 0)
 		{
-			Mat srcObjImgCopy;
-			objImgMatches.copyTo(srcObjImgCopy);
-			srcObjImgs.push_back(srcObjImgCopy);
+			Mat srcObjectImageCopy;
+			selectedObjectImage.copyTo(srcObjectImageCopy);
+			srcObjectsImages.push_back(srcObjectImageCopy);
 		}
-		objMatchesPoints.push_back(Point2f(float(x), float(y)));
-		circle(objImgMatches, Point2f(float(x), float(y)), 2, Scalar(0, 0, 255), 5);
+		objectImageMatchedPoints.push_back(Point2f(float(x), float(y)));
+		circle(selectedObjectImage, Point2f(float(x), float(y)), 2, Scalar(0, 0, 255), 5);
 	}
 
 	if(e == EVENT_RBUTTONDOWN)
 	{
-		if(objMatchesPoints.size() > 0)
+		if(objectImageMatchedPoints.size() > 0)
 		{
-			objMatchesPoints.pop_back();
-			Mat objImgMatchesCopy;
-			srcObjImgs.back().copyTo(objImgMatchesCopy);
-			objImgMatchesCopy.copyTo(objImgMatches);
-			srcObjImgs.pop_back();
+			objectImageMatchedPoints.pop_back();
+			Mat selectedObjectImageCopy;
+			srcObjectsImages.back().copyTo(selectedObjectImageCopy);
+			selectedObjectImageCopy.copyTo(selectedObjectImage);
+			srcObjectsImages.pop_back();
 		}
 	}
 }
 
-//Set current image as next 
-void NextObjImg()
+//Sets the next object image that will be appear on the screen.
+void NextImage()
 {
-	if(currentObjImgIndex == objImgs.size() - 1)
-		currentObjImgIndex = 0;
+	if(currObjectImageIndex == objectsImages.size() - 1)
+		currObjectImageIndex = 0;
 	else
-		currentObjImgIndex++;
-	applicationLoaded = false;
-	//cout << currentObjImgIndex << endl;
+		currObjectImageIndex++;
+	isApplicationLoaded = false;
 }
 
-//Set current image as previus 
-void PreviousObjImg()
+//Sets the previous object image that will be appear on the screen.
+void PreviousImage()
 {
-	if(currentObjImgIndex == 0)
-		currentObjImgIndex = objImgs.size() - 1;
+	if(currObjectImageIndex == 0)
+		currObjectImageIndex = objectsImages.size() - 1;
 	else
-		currentObjImgIndex--;
-	applicationLoaded = false;
-	//cout << currentObjImgIndex << endl;
+		currObjectImageIndex--;
+	isApplicationLoaded = false;
 }
 
-//Define if the application or augmented face function is called
-void SetFaceAugmented(bool isFaceAugmented)
-{
-	faceAugmented = isFaceAugmented;
-	//start = getTickCount();
-}
-
-//Define if the application or augmented face function was called
-bool IsFaceAugmented()
-{
-	return faceAugmented;
-}
-
-//Reset application
+//Resets the application cleaning all windows and object.
 void ResetApplication()
 {
 	try
 	{
-		objImgMatches.release();
-		//faceImgMatchesPoints.clear();
-		objImgs.clear();
-		srcObjImgs.clear();
-		objMatchesPoints.clear();
+		selectedObjectImage.release();
+		objectsImages.clear();
+		srcObjectsImages.clear();
+		objectImageMatchedPoints.clear();
 		SetFaceAugmented(false);
-		applicationLoaded = false;
-		faceImgPointMatched = false;
+		isApplicationLoaded = false;
+		isFaceImagePointsMatched = false;
 		destroyAllWindows();
-		LoadObjImgs();
+		LoadGlassesImages();
 	}
 	catch(Exception ex)
 	{
-		cout << "An error occurred in ResetApplication function!" << endl << "See the thrown exception" << ex.msg << endl;
+		cout << "Error in ResetApplication function!" << endl << "See the thrown exception: " << ex.msg << endl;
 		system("pause");
 	}
 }
 
-//Define face image matches points
-void Draw(cv::Mat img, CLM& clm_model)
+//Sets the selected face image points that will be used for point matching
+void SelectFacePoints()
 {
-	/*start = 0;
-	start = getTickCount();*/
 	try
 	{
-		/*if(objImgs[currentObjImgIndex].empty())
+		if(!isFaceImagePointsMatched)
 		{
-			cout << "An error occurred: current object image is empty!" << endl;
+			char imagePoints[100] = "";
+			cout << "Informe os pontos de correspondecia da imagem da face:" << endl;
+			gets(imagePoints);
+			char *p = strtok(imagePoints, ";");
+			while (p) {
+				int imagePointInt = atoi(p);
+				if(imagePointInt < 0 || imagePointInt > 67)
+				{
+					cout << "Os pontos informados devem esta em um range de 0 a 67!" << endl;
+					system("pause");
+					ResetApplication();
+					break;
+				}
+				faceImageSelectedPoints.push_back(imagePointInt);
+				p = strtok(NULL, ";");
+			}
+			cout << "Pontos de correspondecia da imagem da face selecionados..." << endl;
+			isFaceImagePointsMatched = true;
+		}
+	}
+	catch(Exception ex)
+	{
+		cout << "Error in SelectFacePoints function!" << endl << "See the thrown exception: " << ex.msg << endl;
+		system("pause");
+	}
+}
+
+//Sets the background correspondence points by point number.
+void Draw(cv::Mat backgroundImage, CLM& clm_model)
+{
+	start = 0;
+	start = getTickCount();
+
+	try
+	{
+		if(objectsImages[currObjectImageIndex].empty())
+		{
+			cout << "Error: current object image is empty!" << endl;
 			system("pause");
-		}*/
+		}
 
-		Mat objImgCopy;
-		objImgs[currentObjImgIndex].copyTo(objImgCopy);
+		Mat objectImageCopy;
+		objectsImages[currObjectImageIndex].copyTo(objectImageCopy);
 
-		vector<int> imgMatchesPoints;
+		vector<int> landmarkPoints;
 
-		//imgMatchesPoints.push_back(0);
-		////imgMatchesPoints.push_back(41);
-		//imgMatchesPoints.push_back(40);
-		//imgMatchesPoints.push_back(19);
-		//imgMatchesPoints.push_back(47);
-		////imgMatchesPoints.push_back(46);
-		//imgMatchesPoints.push_back(24);
-		//imgMatchesPoints.push_back(16);
-
-		//imgMatchesPoints.push_back(0);
-		imgMatchesPoints.push_back(36);
-		imgMatchesPoints.push_back(37);
-		imgMatchesPoints.push_back(38);
-		imgMatchesPoints.push_back(39);
-		imgMatchesPoints.push_back(40);
-		imgMatchesPoints.push_back(41);
-		imgMatchesPoints.push_back(19);
-		imgMatchesPoints.push_back(27);
-		imgMatchesPoints.push_back(42);
-		imgMatchesPoints.push_back(43);
-		imgMatchesPoints.push_back(44);
-		imgMatchesPoints.push_back(45);
-		imgMatchesPoints.push_back(46);
-		imgMatchesPoints.push_back(47);
-		imgMatchesPoints.push_back(24);
-		//imgMatchesPoints.push_back(16);
-
-		imgMatchesPoints.push_back(17);
-		imgMatchesPoints.push_back(26);
-
-		/*for(int i = 0; i < faceImgMatchesPoints.size(); i++)
-		{
-			imgMatchesPoints.push_back(faceImgMatchesPoints[i]);
-		}*/
+		//Select the landmarks as you wich (0-68).
+		//Comment if SelectFacePoints() function is being used
+		landmarkPoints.push_back(36);
+		landmarkPoints.push_back(37);
+		landmarkPoints.push_back(38);
+		landmarkPoints.push_back(39);
+		landmarkPoints.push_back(40);
+		landmarkPoints.push_back(41);
+		landmarkPoints.push_back(19);
+		landmarkPoints.push_back(27);
+		landmarkPoints.push_back(42);
+		landmarkPoints.push_back(43);
+		landmarkPoints.push_back(44);
+		landmarkPoints.push_back(45);
+		landmarkPoints.push_back(46);
+		landmarkPoints.push_back(47);
+		landmarkPoints.push_back(24);
+		landmarkPoints.push_back(17);
+		landmarkPoints.push_back(26);
 
 		int idx = clm_model.patch_experts.GetViewIdx(clm_model.params_global, 0);
+		Draw(backgroundImage, objectImageCopy, landmarkPoints, objectImageMatchedPoints, clm_model.detected_landmarks, clm_model.patch_experts.visibilities[0][idx]);
+		// end of comments
 
-		//if(objMatchesPoints.size() == imgMatchesPoints.size())
-			Draw(img, objImgCopy, imgMatchesPoints, objMatchesPoints, clm_model.detected_landmarks, clm_model.patch_experts.visibilities[0][idx]);
-		//else
-		//{
-		//	cout << "An error occurred: the amount of correspondence points between face and object images should be equal!" << endl;
-		//	ResetApplication();
-		//	//return;
-		//}
+		//Comment if manually points selection is being used
+		/*for(int i = 0; i < faceImageSelectedPoints.size(); i++)
+		{
+			landmarkPoints.push_back(faceImageSelectedPoints[i]);
+		}
+
+		if(objectImageMatchedPoints.size() == landmarkPoints.size()){
+			int idx = clm_model.patch_experts.GetViewIdx(clm_model.params_global, 0);
+			Draw(backgroundImage, objectImageCopy, landmarkPoints, objectImageMatchedPoints, clm_model.detected_landmarks, clm_model.patch_experts.visibilities[0][idx]);
+		}		
+		else
+		{
+			cout << "An error occurred: the amount of correspondence points between face and object images should be equal!" << endl;
+			ResetApplication();
+			return;
+		}*/
+		// end of comments
 	}
 	catch(Exception ex)
 	{
-		cout << "An error occurred in first Draw function!" << endl << ex.msg << endl;
+		cout << "Error in the first Draw function!" << endl << ex.msg << endl;
 		system("pause");
 	}
 }
 
-//Matching face image correspondences points
-void Draw(cv::Mat img, Mat objImg, vector<int>& imgMatchesPoints, vector<Point2f>& objImgMatchesPoints, const Mat_<double>& shape2D, Mat_<int>& visibilities)
+//Takes the background image matched points.
+void Draw(cv::Mat backgroundImage, Mat foregroundImage, vector<int>& landmarkPoints, vector<Point2f>& selectedObjectPoints, 
+	const Mat_<double>& shape2D, Mat_<int>& visibilities)
 {
 	try
 	{
-		int imgMatchesPointsSize = imgMatchesPoints.size();
+		int landmarkPointsCount = landmarkPoints.size();
 
-		/*if(imgMatchesPointsSize == 0)
+		if(landmarkPointsCount == 0)
 		{
-			cout << "An error occurred: face image integer vector is empty!" << endl;
+			cout << "Error: The vector of matched points (integer) is empty!" << endl;
 			system("pause");
-		}*/
+		}
 
-		/*if(objImgMatchesPoints.size() == 0)
+		if(selectedObjectPoints.size() == 0)
 		{
-			cout << "An error occurred: object image integer vector is empty!" << endl;
+			cout << "Error: The vector of matched points (point) is empty!" << endl;
 			system("pause");
-		}*/
+		}
 
-		vector<Point2f> imgMatchesPointsPushed;
+		vector<Point2f> matchedPointsPushed;
 	
 		int n = shape2D.rows/2;
-		for(int i = 0; i < imgMatchesPointsSize; i++)
-			imgMatchesPointsPushed.push_back(Point2f(shape2D.at<double>(imgMatchesPoints[i]), shape2D.at<double>(imgMatchesPoints[i] + n)));
+		for(int i = 0; i < landmarkPointsCount; i++)
+			matchedPointsPushed.push_back(Point2f(shape2D.at<double>(landmarkPoints[i]), shape2D.at<double>(landmarkPoints[i] + n)));
 
-		//if(imgMatchesPointsPushed.empty())
-		//{
-		//	cout << "An error occurred: correspondence points face image is empty!" << endl;
-		//	system("pause");
-		//}
+		if(matchedPointsPushed.empty())
+		{
+			cout << "Error: vector of landmarks is empty!" << endl;
+			system("pause");
+		}
 
-		PesrpectiveProjection(img, objImg, imgMatchesPointsPushed, objImgMatchesPoints);
+		ExecutePesrpectiveProjection(backgroundImage, foregroundImage, matchedPointsPushed, selectedObjectPoints);
 	}
 	catch(Exception ex)
 	{
-		cout << "An error occurred in second Draw function!" << endl << "See the thrown exception" << ex.msg << endl;
+		cout << "Error in the second Draw function!" << endl << "See the thrown exception" << ex.msg << endl;
 		system("pause");
 	}
 }
 
-//Applying perspective transform on face and object images
-void PesrpectiveProjection(Mat img, Mat objImage, vector<Point2f>& imgMatchesPointsPushed, vector<Point2f>& objImgMatchesPoints)
+//Applies a perspective transform between background and foreground images using matched points.
+void ExecutePesrpectiveProjection(Mat backgroundImage, Mat foregroundImage, vector<Point2f>& matchedPointsPushed, 
+	vector<Point2f>& selectedObjectPoints)
 {
 	Mat homography;
 	try
 	{
-		homography = findHomography(objImgMatchesPoints, imgMatchesPointsPushed, RANSAC);
+		homography = findHomography(selectedObjectPoints, matchedPointsPushed, RANSAC);
 	}
 	catch(Exception ex)
 	{
-		cout << "An error ocurred in homography computation!" << endl << "See the thrown exception" << ex.msg << endl;
+		cout << "Error to compute the homography!" << endl << "See the thrown exception: " << ex.msg << endl;
 		system("pause");
 	}
 
 	if(homography.empty())
 	{
-		//cout << "It is not possible to compute an homography at that position!" << endl;
+		cout << "Error: homography is empty!" << endl;
 		return;
 	}
 
-	Mat backgroundImg;
-	img.copyTo(backgroundImg);
+	Mat backgroundImageCopy;
+	backgroundImage.copyTo(backgroundImageCopy);
 
 	try
 	{
-		warpPerspective(objImage, img, homography,img.size());
+		warpPerspective(foregroundImage, backgroundImage, homography,backgroundImage.size());
 	}
 	catch(Exception ex)
 	{
-		cout << "An error ocurred in PesrpectiveProjection function!" << endl << "See the thrown exception" << ex.msg << endl;
+		cout << "Error in ExecutePesrpectiveProjection function!" << endl << "See the thrown exception: " << ex.msg << endl;
 		system("pause");
 	}
 
-	AlphaBlending(backgroundImg, img);
+	BlendImagesWithAlpha(backgroundImageCopy, backgroundImage);
 }
 
-//Applying alpha blending overlapping from object to face image
-void AlphaBlending(Mat backgroundImg, Mat foregroundImg)
+//Applies an alpha blending between background and foreground images.
+void BlendImagesWithAlpha(Mat backgroundImage, Mat foregroundImage)
 {
 	try
 	{
 		Point2i location = Point(0, 0);
 	
-		for(int y = std::max(location.y, 0); y < backgroundImg.rows; y++)
+		for(int y = std::max(location.y, 0); y < backgroundImage.rows; y++)
 		{
 			int fY = y - location.y;
 
-			if(fY >= foregroundImg.rows)
+			if(fY >= foregroundImage.rows)
 				break;
 
-			 for(int x = std::max(location.x, 0); x < backgroundImg.cols; ++x)
+			 for(int x = std::max(location.x, 0); x < backgroundImage.cols; ++x)
 			 {
 				int fX = x - location.x;
 
-				if(fX >= foregroundImg.cols)
+				if(fX >= foregroundImage.cols)
 					break;
 
-				double opacity = ((double)foregroundImg.data[fY * foregroundImg.step + fX * foregroundImg.channels() + 3]) / 255.;
+				double opacity = ((double)foregroundImage.data[fY * foregroundImage.step + fX * foregroundImage.channels() + 3]) / 255.;
 
-				for(int c = 0; opacity > 0 && c < backgroundImg.channels(); ++c)
+				for(int c = 0; opacity > 0 && c < backgroundImage.channels(); ++c)
 				{
-					unsigned char foregroundPx = foregroundImg.data[fY * foregroundImg.step + fX * foregroundImg.channels() + c];
-					unsigned char backgroundPx = backgroundImg.data[y * backgroundImg.step + x * backgroundImg.channels() + c];
-					backgroundImg.data[y * backgroundImg.step + backgroundImg.channels() * x + c] = backgroundPx * (1.-opacity) + foregroundPx * opacity;
+					unsigned char foregroundPx = foregroundImage.data[fY * foregroundImage.step + fX * foregroundImage.channels() + c];
+					unsigned char backgroundPx = backgroundImage.data[y * backgroundImage.step + x * backgroundImage.channels() + c];
+					backgroundImage.data[y * backgroundImage.step + backgroundImage.channels() * x + c] = backgroundPx * (1.-opacity) + foregroundPx * opacity;
 				}
 			}
 		}
 
-		cv::putText(backgroundImg, currentFps, cv::Point(10,20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255,0,0));	
+		cv::putText(backgroundImage, currentFps, cv::Point(10,20), CV_FONT_HERSHEY_SIMPLEX, 0.5, CV_RGB(255,0,0));	
 
-		imshow("Augmented Face", backgroundImg);
+		imshow("Augmented Face", backgroundImage);
 
-		backgroundImg.copyTo(ObjPrint);
+		backgroundImage.copyTo(augmentedFaceImage);
 
-		/*int elapsed = getTickCount() - start;*/
-		//sum += start;
-		//cout << start << endl;
-		/*int elapsed = getTickCount() - start;
+		int elapsed = getTickCount() - start;
+		sum += start;
+		cout << start << endl;
+		int elapsed = getTickCount() - start;
 		sum += elapsed;
-		cout << elapsed << endl;*/
+		cout << elapsed << endl;
 	}
 	catch(Exception ex)
 	{
-		cout << "An error ocurred in AlphaBlending function!" << endl << "See the thrown exception" << ex.msg << endl;
+		cout << "Error in BlendImagesWithAlpha function!" << endl << "See the thrown exception: " << ex.msg << endl;
 		system("pause");
 	}
 }
 
+//Save the agumented face final image
 void Print()
 {
-	std::string result = std::to_string (objPrintCont) + ".jpg";
-	imwrite(result, ObjPrint);
-	objPrintCont++;
+	std::string result = std::to_string (augmentedFaceImageCount) + ".jpg";
+	imwrite(result, augmentedFaceImage);
+	augmentedFaceImageCount++;
 }
 
 void SetFps(string fps)
@@ -1294,7 +1316,20 @@ void DoPause()
 	cout << elapsed << endl;
 	system("pause");
 }
-//=================================================================================================================================================
+
+// Setter
+void SetFaceAugmented(bool isFaceAugmented)
+{
+	faceAugmented = isFaceAugmented;
+}
+
+// Getter
+bool IsFaceAugmented()
+{
+	return faceAugmented;
+}
+
+//====================End of the application======================
 
 // Drawing landmarks on a face image
 void Draw(cv::Mat img, const Mat_<double>& shape2D, Mat_<int>& visibilities)

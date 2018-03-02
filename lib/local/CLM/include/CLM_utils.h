@@ -108,17 +108,17 @@ namespace CLMTracker
 	//Augmented Reality Application (Created by JoaoOtavio)
 	//===========================================================================
 	
-	void LoadObjImgs();
+	void LoadGlassesImages();
 
 	void Application();
 
 	void SelectFaceImgMatches();
 
-	void OnClickObjImgMatches(int e, int x, int y, int d, void *ptr);
+	void DrawCorrespondencePoint(int e, int x, int y, int d, void *ptr);
 
-	void NextObjImg();
+	void NextImage();
 
-	void PreviousObjImg();
+	void PreviousImage();
 
 	void SetFaceAugmented(bool isFaceAugmented);
 
